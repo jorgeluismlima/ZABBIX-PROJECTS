@@ -1,0 +1,474 @@
+
+Neste tutorial, estou usando o Debian 7 como servidor/cliente. Caso tenha preferencia por outras distribuições verifique e adapte os comandos.
+
+    1.   Pré-Instalação
+
+
+Antes de começar a instalação do Zabbix, precisamos antes atender alguns pré-requisitos para a instalação como compilador, Java, MySQL, PHP, Apache e algumas bibliotecas. Para instalarmos os pacotes necessários, vamos utilizar os seguintes comandos:
+
+    # echo "deb http://ftp.br.debian.org/debian stable main" >> /etc/apt/sources.list
+    # apt-get update
+    # apt-get install -y --force-yes make flex gcc gpp apache2 php5 php5-mysql libapache2-mod-php5 php5-gd php-net-socket libpq5 libpq-dev snmp libiksemel-dev libcurl4-gnutls-dev vim libssh2-1-dev libssh2-1 libopenipmi-dev libsnmp-dev mysql-server-5.5 mysql-client wget libmysqld-dev curl fping openjdk-6-jdk
+
+Obs: Na instalação do MySQL será solicitado a senha do root.
+
+Pronto, depois de instalarmos as dependências para a instalação do Zabbix, vamos criar os diretórios onde ficarão os arquivos.
+
+    # mkdir -pv /etc/zabbix/install
+    # cd /etc/zabbix/install
+
+Já dentro do diretório, vamos baixar e descompactar o pacote do Zabbix:
+
+    # wget http://sourceforge.net/projects/zabbix/files/ZABBIX%20Latest%20Stable/2.0.8/zabbix-2.0.8.tar.gz
+    # tar -xzvf zabbix-2.0.8.tar.gz
+
+Pronto, agora vamos as configurações.
+
+    2.   Configuração
+
+O que devemos fazer agora é criar e configurar a base do MySQL que será usado pelo Zabbix, criar um usuário para o Zabbix no Unix e configurar o Apache/PHP.
+
+    # mysql -u root -p
+
+    mysql> create database zabbix character set utf8;
+    mysql> GRANT ALL PRIVILEGES ON zabbix.* TO zabbix@localhost IDENTIFIED BY 'zabbix' WITH GRANT OPTION;
+    mysql> quit;
+
+Obs: Em password coloque a senha da base de dados para o usuário zabbix que não terá ligação com o usuário do Unix.
+
+    # useradd -s /bin/false zabbix
+
+Vamos agora, alterar algumas configurações do Apache/PHP, editando o seguinte arquivo:
+    
+     # pico /etc/php5/apache2/php.ini
+
+     date.timezone = "America/Brasilia"
+     max_execution_time = 300
+     max_input_time = 300
+     post_max_size = 16M
+
+Como alteramos as configurações do Apache/PHP, vamos reinicia-lo:
+
+    # /etc/init.d/apache2 restart
+
+
+    3.   Instalação
+
+Vamos agora, começar realmente a instalação do Zabbix, o primeiro passo é popular a base de dados que criamos acima:
+
+# cat /etc/zabbix/install/zabbix-2.0.8/database/mysql/schema.sql | mysql -u zabbix -p<password> zabbix
+# cat /etc/zabbix/install/zabbix-2.0.8/database/mysql/images.sql | mysql -u zabbix -p<password> zabbix
+# cat /etc/zabbix/install/zabbix-2.0.8/database/mysql/data.sql | mysql -u zabbix -p<password> zabbix 
+
+Depois de popular o banco de dados, vamos configurar o pacote para a instalação, para isso navegue até o deretório /etc/zabbix/install/zabbix-2.0.8/:
+
+# ./configure --prefix=/etc/zabbix --enable-server --enable-agent --enable-java --with-mysql --with-net-snmp --with-jabber --with-libcurl=/usr/bin/curl-config --with-ssh2 --with-openipmi
+
+--prefix=/etc/zabbix – Indicando o diretório dos arquivos de instalação.
+--enable-server – Habilitando o servidor Zabbix.
+--enable-agent – Habilitando o agente Zabbix.
+--enable-java – Habilitando o java.
+--with-mysql – Indicando qual será a nossa base de dados, no nosso caso o MySQL.
+--with-net-snmp – Habilitando o monitoramento SNMP.
+--with-jabber – Habilitando o envio de mensagens via Jabber.
+--with-libcurl=/usr/bin/curl-config – Habilitando a biblioteca Curl e indicando o seu diretório.
+--with-ssh2 – Habilitando o modulo SSH2 para comandos remotos e monitoramento via SSH.
+--with-openipmi – Habilitando o monitoramento IPMI
+
+Obs:  Caso queira verificar todos os módulos disponíveis no Zabbix execute o comando./configure --help
+
+Depois de configurarmos o pacote, vamos compilar e instalar:
+
+    # make; make install
+
+Vamos editar o arquivo /etc/services adicionando as portas necessárias para comunicação do Zabbix:
+
+    # pico /etc/services
+
+zabbix-agent    10050/tcp #Zabbix Agent
+zabbix-agent    10050/udp #Zabbix Agent
+zabbix-trapper  10051/tcp #Zabbix Trapper
+zabbix-trapper  10051/udp #Zabbix Trapper
+
+Obs: Como é possível reparar neste arquivo, as portas estão em ordem, adicione as linhas acima nesta ordem. Lembrando que em alguns casos a linha é adicionada automaticamente, então tente localiza-las antes de inserir manualmente.
+
+Agora, vamos criar alguns links para ficar mais fácil a localização dos arquivos de configuração, tanto do cliente como do servidor Zabbix:
+
+    # ln -s /etc/zabbix/etc/zabbix_agentd.conf /etc/zabbix
+    # ln -s /etc/zabbix/etc/zabbix_server.conf /etc/zabbix
+
+Vamos editar o arquivo /etc/zabbix/zabbix_agentd.conf alterando os seguintes valores:
+
+    # pico /etc/zabbix/zabbix_agentd.conf
+
+PidFile=/tmp/zabbix_agentd.pid
+LogFile=/tmp/zabbix_agentd.log
+LogFileSize=2
+DebugLevel=3
+EnableRemoteCommands=1
+LogRemoteCommands=1 
+Server=40.0.0.235
+ListenPort=10050
+Hostname=Informe_o_nome_do_seu_servidor
+
+Depois vamos alterar as configurações do arquivo /etc/zabbix/zabbix_agentd.conf, que é a configuração do servidor Zabbix:
+
+    # pico /etc/zabbix/zabbix_server.conf
+
+ListenPort=10051
+LogFile=/tmp/zabbix_server.log
+LogFileSize=2
+DebugLevel=3
+PidFile=/tmp/zabbix_server.pid
+DBHost=localhost
+DBName=zabbix
+DBUser=zabbix
+DBPassword=senha do zabbix para acessar o banco de dados
+StartIPMIPollers=10
+StartPingers=10
+StartDiscoverers=5
+HousekeepingFrequency=1
+AlertScritptsPatch=/etc/zabbix/scripts
+FpingLocation=/usr/bin/fping
+LogSlowQueries=1000
+
+
+
+Obs: Certifique se o caminho do fping da sua instalação é realmente igual ao do nosso exemplo com o comando whereis fping para que não haja problemas posteriormente.
+
+Vamos configurar agora a parte dos frontends:
+
+    # mkdir /var/www/zabbix
+    # cp -R /etc/zabbix/install/zabbix-2.0.8/frontends/php/*  /var/www/zabbix/
+       cp -R /etc/zabbix/install/zabbix-2.0.8/frontends/php/* /var/www/zabbix/
+    # chown -R www-data:www-data /var/www/zabbix/
+    # /etc/init.d/apache2 restart
+
+Agora, precisamos criar os scripts de start-stop-restart tanto do servidor quanto do cliente Zabbix:
+Ou 
+copie o script do server zabbix com o seguinte comando :
+#scp /etc/init.d/zabbix_agentd root@ip_server:/etc/init.d/zabbix_agentd
+
+ # pico /etc/init.d/zabbix_agentd
+
+#!/bin/sh
+#
+# Zabbix agent start/stop script.
+#
+# Written by Alexei Vladishev <alexei.vladishev@zabbix.com>.
+NAME=zabbix_agentd
+PATH=/bin:/usr/bin:/sbin:/usr/sbin:/home/zabbix/bin
+DAEMON=/etc/zabbix/sbin/${NAME}
+DESC="Zabbix agent daemon"
+PID=/tmp/$NAME.pid
+test -f $DAEMON || exit 0
+set -e
+case "$1" in
+  start)
+        echo "Starting $DESC: $NAME"
+        start-stop-daemon --oknodo --start --pidfile $PID \
+                 --exec $DAEMON
+        ;;
+  stop)
+        echo "Stopping $DESC: $NAME"
+        start-stop-daemon --oknodo --stop  --pidfile $PID \
+                --exec $DAEMON
+        ;;
+  restart|force-reload)
+        #
+        #       If the "reload" option is implemented, move the "force-reload"
+        #       option to the "reload" entry above. If not, "force-reload" is
+        #       just the same as "restart".
+        #
+#       echo -n "Restarting $DESC: zabbix_agent"
+        $0 stop
+        $0 start
+#       start-stop-daemon --stop --quiet --pidfile \
+#               /tmp/$NAME.pid --user zabbix --exec $DAEMON
+#       sleep 1
+#       start-stop-daemon --start --quiet --pidfile \
+#               /tmp/$NAME.pid --user zabbix --exec $DAEMON
+#       echo "$NAME."
+        ;;
+  *)
+        N=/etc/init.d/$NAME
+        # echo "Usage: $N {start|stop|restart|force-reload}" >&2
+        echo "Usage: $N {start|stop|restart|force-reload}" >&2
+        exit 1
+        ;;
+esac
+exit 0
+
+
+    # pico /etc/init.d/zabbix_server
+
+#!/bin/sh
+#
+# Zabbix daemon start/stop script.
+#
+# Written by Alexei Vladishev <alexei.vladishev@zabbix.com>.
+NAME=zabbix_server
+PATH=/bin:/usr/bin:/sbin:/usr/sbin:/home/zabbix/bin
+DAEMON=/etc/zabbix/sbin/${NAME}
+DESC="Zabbix server daemon"
+PID=/tmp/$NAME.pid
+test -f $DAEMON || exit 0
+set -e
+case "$1" in
+  start)
+        echo "Starting $DESC: $NAME"
+        start-stop-daemon --oknodo --start --pidfile $PID \
+                --exec $DAEMON
+        ;;
+  stop)
+        echo "Stopping $DESC: $NAME"
+        start-stop-daemon --oknodo --stop --pidfile $PID \
+                --exec $DAEMON
+        ;;
+  restart|force-reload)
+        #
+        #       If the "reload" option is implemented, move the "force-reload"
+        #       option to the "reload" entry above. If not, "force-reload" is 10
+        #       just the same as "restart".
+        #
+#       echo -n "Restarting $DESC: zabbix_server"
+        $0 stop
+        $0 start
+#       start-stop-daemon --stop --quiet --pidfile \
+#               /tmp/$NAME.pid --user zabbix --exec $DAEMON
+#       sleep 1
+#       start-stop-daemon --start --quiet --pidfile \
+#               /tmp/$NAME.pid --user zabbix --exec $DAEMON
+#       echo "$NAME."
+        ;;
+  *)
+        N=/etc/init.d/$NAME
+        # echo "Usage: $N {start|stop|restart|force-reload}" >&2
+        echo "Usage: $N {start|stop|restart|force-reload}" >&2
+        exit 1
+        ;;
+esac
+exit 0
+
+
+   
+Vamos dar permissão aos scripts e iniciar o agente e o servidor Zabbix:
+
+    # chmod +x /etc/init.d/zabbix_server /etc/init.d/zabbix_agentd
+    # /etc/init.d/zabbix_server start
+    # /etc/init.d/zabbix_agentd start
+
+Vamos configurar a inicialização do sistema para que os serviços sejam devidamente iniciados junto com o sistema:
+
+    # update-rc.d -f zabbix_server defaults
+    # update-rc.d -f zabbix_agentd defaults
+
+Pronto, já fizemos todas as configurações necessárias no Unix, vamos agora a parte gráfica do negócio, para isso devemos acessar o endereçohttp://ip_do_servidor/zabbix, uma janela semelhante a essa será exibida, Clique emNext:
+
+
+Verifique todas as dependências e se estiver tudo OK clique em Next.
+
+Preencha os campos para conexão com o banco de dados,
+Database name : zabbix
+User : zabbix
+Password : zabbix
+clique em Test connection para testar a conexão e se estiver OK clique em Next.
+
+Deixe padrão o nome do host e a porta, e em Name insira o nome do seu servidor e clique Next.
+
+Confira os dados inseridos e clique em Next.
+
+Pronto, o Zabbix já está configurado. Logo após clicar em Finish será exibida a tela de login, por padrão o usuário é admin e a senha é zabbix.
+
+
+
+
+Por padrão, o monitoramento via agente no servidor Zabbix é desabilitado, para habilita-lo vá em Configuration, depois em Host e logo você visualizará o servidor e em Status estará como Not monitored, basta clicar em cima que o status ficará como Monitored.
+
+  
+
+
+
+
+  4.   Instalação e Configuração Cliente Linux
+
+Antes de configurarmos o cliente, devemos criar os diretórios que irão alocar os arquivos de instalação:
+
+   # mkdir -pv /etc/zabbix/install
+    # cd /etc/zabbix/install
+
+Já dentro do diretório, vamos baixar e descompactar o pacote do Zabbix:
+
+    # wget http://sourceforge.net/projects/zabbix/files/ZABBIX%20Latest%20Stable/2.0.8/zabbix-2.0.8.tar.gz
+    # tar -xzvf zabbix-2.0.8.tar.gz
+    # cd zabbix-2.0.8/
+
+O próximo passo seria a compilação dos módulos que vamos instalar, mas antes vamos instalar o gcc e o make:
+
+    # apt-get update
+    # apt-get install –y gcc make
+
+Depois de instalado o gcc e o make, vamos compilar nossa instalação:
+
+    # ./configure --prefix=/etc/zabbix --enable-agent --enable-static
+
+--prefix=/etc/zabbix – Indicando o diretório dos arquivos de instalação.
+--enable-agent – Habilitando o agente Zabbix.
+--enable-static – Criando links estáticos para os binários.
+
+Depois de compilado, vamos instalar:
+
+    # make; make install
+
+Vamos agora, depois de instalado criar alguns links para facilitar o acesso ao arquivo de configuração do agente:
+
+    # ln -s /etc/zabbix/etc/zabbix_agentd.conf /etc/zabbix/
+
+Agora vamos configurar o script de gerenciamento (start / stop / ... /):
+
+    # pico /etc/init.d/zabbix_agentd
+
+#!/bin/sh
+#
+# Zabbix agent start/stop script.
+#
+NAME=zabbix_agentd
+PATH=/bin:/usr/bin:/sbin:/usr/sbin:/home/zabbix/bin
+DAEMON=/etc/zabbix/sbin/${NAME}
+DESC="Zabbix agent daemon"
+PID=/tmp/$NAME.pid
+test -f $DAEMON || exit 0
+set -e
+case "$1" in
+  start)
+        echo "Starting $DESC: $NAME"
+        start-stop-daemon --oknodo --start --pidfile $PID \
+                 --exec $DAEMON
+        ;;
+  stop)
+        echo "Stopping $DESC: $NAME"
+        start-stop-daemon --oknodo --stop  --pidfile $PID \
+                --exec $DAEMON
+        ;;
+  restart|force-reload)
+        #
+        #       If the "reload" option is implemented, move the "force-reload"
+        #       option to the "reload" entry above. If not, "force-reload" is
+        #       just the same as "restart".
+        #
+#       echo -n "Restarting $DESC: zabbix_agent"
+        $0 stop
+        $0 start
+#       start-stop-daemon --stop --quiet --pidfile \
+#               /tmp/$NAME.pid --user zabbix --exec $DAEMON
+#       sleep 1
+#       start-stop-daemon --start --quiet --pidfile \
+#               /tmp/$NAME.pid --user zabbix --exec $DAEMON
+#       echo "$NAME."
+        ;;
+  *)
+        N=/etc/init.d/$NAME
+        # echo "Usage: $N {start|stop|restart|force-reload}" >&2
+        echo "Usage: $N {start|stop|restart|force-reload}" >&2
+        exit 1
+        ;;
+esac
+exit 0
+
+Vamos aplicar permissão de execução ao script:
+
+    # chmod +x /etc/init.d/zabbix_agentd
+
+Vamos alterar algumas configurações para que o agente funcione corretamente:
+
+    # pico /etc/zabbix/ zabbix_agentd.conf
+
+PidFile=/tmp/zabbix_agentd.pid
+LogFile=/tmp/zabbix_agentd.log
+LogFileSize=1
+EnableRemoteCommands=1
+LogRemoteCommands=1
+Server=IP_SERVIDOR_ZABBIX
+ListenPort=10050
+StartAgents=3
+#ServerActive=127.0.0.1
+Hostname=NOME_CLIENTE
+
+Obs: Note que em Server você deve colocar o IP do seu servidor Zabbix, deve também comentar a linha ServerActive e em Hostname você deve colocar o nome do seu cliente, do mesmo jeito que aparece no shell.
+
+Antes de iniciarmos o nosso agente, vamos criar um usuário no sistema para o Zabbix:
+
+    # useradd -s /bin/false zabbix
+
+Agora vamos finalmente iniciar nosso agente:
+
+    # /etc/init.d/zabbix_agentd start
+
+Se tudo estiver OK o agente será iniciado. Vamos configura-lo para iniciar junto com o sistema:
+
+    # update-rc.d -f zabbix_agentd defaults
+
+Pronto, o nosso agente está configurado no nosso cliente, basta configurar no console de administração do Zabbix para iniciar o monitoramento.
+
+Obs: Lembrando que caso haja um firewall rodando no cliente, é necessário abrir as portas 10050/10051 UDP e 10050/10051 TCP para que o servidor consiga se comunicar com o agente.
+
+
+    5.   Instalação e Configuração Cliente Windows
+
+Para configurarmos o agente no Windows devemos primeiramente criar um diretório chamado ZABBIX em C:, depois devemos coletar alguns arquivos que estão no pacote que baixamos tanto para instalação do servidor quanto para a instalação do cliente Linux, depois de descompactado entre no diretório bin, dentro deste diretório há duas pastaswin32 e win64, verifique a arquitetura do seu Sistema Operacional e copie todo o conteúdo da pasta correspondente para a pasta ZABBIX que criamos anteriormente, você pode usar o Filezilla por exemplo para transferir do Linux para o Windows ou baixar o pacote diretamente no Windows pelo link para download do pacote Zabbix, usando o 7-zip ou Winrar para descompactar.
+
+Depois de todos os arquivos transferidos, devemos criar o nosso arquivo de configuração com o nome zabbix_agentd.conf que deverá ter o seguinte conteúdo:
+
+# This is a config file for Zabbix Agent (Windows)
+# To get more information about Zabbix, go to http://www.zabbix.com
+
+############ GENERAL PARAMETERS #################
+
+LogFile=c:\ZABBIX\zabbix_agentd.log
+DebugLevel=3
+Server=IP_SERVER
+StartAgents=5
+Hostname=HOSTNAME_CLIENTE
+
+############ ADVANCED PARAMETERS #################
+
+Timeout=3
+
+Obs: Em IP_SERVER coloque o que IP do seu servidor Zabbix e emHOSTNAME_CLIENTE coloque o nome do cliente que está sendo configurado.
+
+Agora, vamos abrir o prompt de comando como administrador, e navegar até o diretórioC:\ZABBIX que criamos anteriormente, para isso digite o seguinte comando:
+
+    C:\Windows\System32> cd C:\ZABBIX
+
+Obs: Note que o prefixo C:\Windows\System32> é somente para indicar que estamos dentro do Prompt de comando do Windows.
+
+Depois vamos criar o serviço:
+
+    C:\ZABBIX> zabbix_agentd.exe -i -c zabbix_agentd.conf
+
+Agora vamos iniciar o serviço:
+
+    C:\ZABBIX> zabbix_agentd.exe -s -c zabbix_agentd.conf
+
+Pronto, o nosso agente está configurado no nosso cliente, basta configurar no console de administração do Zabbix para iniciar o monitoramento.
+
+Obs: Assim como no Linux, caso haja um firewall rodando, deve-se abrir as portas 10050/10051 UDP e 10050/10051 TCP para que o servidor Zabbix consiga se comunicar com o agente.
+
+
+    6.   Criando um Host no Console de Administração.
+
+Depois de configurarmos corretamente os agentes, vamos criar os Hosts no console de administração do Zabbix para que seja iniciado o monitoramento. No console de administração posicione o mouse sobre Configuration e clique em Hosts, já na janela de configuração de Hosts, clique em Create Host e você verá uma janela semelhante a essa:
+
+
+
+
+Preencha todos os dados conforme sua necessidade. Depois de preenchido, devemos definir o que será monitorado, para isso é utilizado os templates. Para definirmos um template ao nosso Host, clique no guia Templates e depois clique em Add, selecione o template desejado, clique em Select e depois em Save para finalizar a configuração do Host.
+
+Há vários outros parâmetros que pode ser configurado, mas para somente iniciarmos o monitoramento o que fizemos já é o suficiente.
+
+
+    7.   Concluindo.
+
+Com os passos acima, você já terá um servidor Zabbix operacional em sua rede, podendo monitorar tudo que possua IP. Em próximas oportunidades postarei a instalação de clientes em Slackware, CentOS e se houver oportunidade e demanda posso postar a instalações do Zabbix/Cliente em outras distribuições, além de configuração de SNMP nos Switchs, Roteadores e outros Devices para monitara-los também. Obrigado pela atenção.
+
+De <http://tudoti.jefersonrc.com.br/2013/09/monitorando-sua-rede-com-zabbix-no.html#.Uk4h8IaceK8> 
